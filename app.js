@@ -519,7 +519,6 @@ function refreshReception() {
         <td>
           <div class="btn-group">
             <button class="btn btn-outline btn-sm" onclick="viewPatientDetail('${q.patientId}')" title="View details">👁️</button>
-            ${isDone ? `<button class="btn btn-warning btn-sm" onclick="dischargePatient('${q.patientId}')" title="Discharge">🚪</button>` : ""}
           </div>
         </td>
       </tr>`;
@@ -653,7 +652,12 @@ function refreshCashier() {
         <td>${pay.amount?.toLocaleString() || "—"} RWF</td>
         <td>${escHtml(pay.method || "—")}</td>
         <td>${fmtDateTime(pay.paidAt)}</td>
-        <td><button class="btn btn-outline btn-sm" onclick="printReceipt('${q.patientId}')">🧾 Receipt</button></td>
+        <td>
+          <div class="btn-group">
+            <button class="btn btn-outline btn-sm" onclick="printReceipt('${q.patientId}')" title="Receipt">🧾</button>
+            <button class="btn btn-warning btn-sm" onclick="dischargePatient('${q.patientId}')" title="Discharge">🚪</button>
+          </div>
+        </td>
       </tr>`;
           })
           .join("");
