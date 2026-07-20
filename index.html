@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="DMC Hospital — Health Information Management System Demo">
+  <title>DMC Hospital — HIMS</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app">
+  <!-- ════════════════════════════════════════════
+       SIDEBAR
+       ════════════════════════════════════════════ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <h1>🏥 DMC Hospital</h1>
+      <span>Health Information Management</span>
+    </div>
+    <nav class="sidebar-nav" id="sidebarNav">
+      <!-- Front of House -->
+      <div class="nav-group">
+        <div class="nav-group-label">Front of House</div>
+        <div class="nav-item" data-panel="reception" data-roles="reception,itadmin">
+          <span class="icon">📋</span> Reception
+        </div>
+        <div class="nav-item" data-panel="cashier" data-roles="cashier,itadmin">
+          <span class="icon">💳</span> Billing
+        </div>
+      </div>
+      <!-- Clinical -->
+      <div class="nav-group">
+        <div class="nav-group-label">Clinical</div>
+        <div class="nav-item" data-panel="doctor" data-roles="doctor,itadmin">
+          <span class="icon">👨‍⚕️</span> Consultations
+        </div>
+        <div class="nav-item" data-panel="nurse" data-roles="nurse,itadmin">
+          <span class="icon">👩‍⚕️</span> Nursing / Maternity
+        </div>
+        <div class="nav-item" data-panel="pharmacy" data-roles="pharmacy,itadmin">
+          <span class="icon">💊</span> Pharmacy
+        </div>
+      </div>
+      <!-- Operations -->
+      <div class="nav-group">
+        <div class="nav-group-label">Operations</div>
+        <div class="nav-item" data-panel="hr" data-roles="hr,itadmin">
+          <span class="icon">🗂️</span> Human Resources
+        </div>
+      </div>
+      <!-- System -->
+      <div class="nav-group">
+        <div class="nav-group-label">System</div>
+        <div class="nav-item" data-panel="admin" data-roles="itadmin">
+          <span class="icon">⚙️</span> Administration
+        </div>
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="switch-user-btn" onclick="openUserPicker()">
+        <span>👤</span> Switch User
+      </button>
+    </div>
+  </aside>
+
+  <!-- ════════════════════════════════════════════
+       MAIN AREA
+       ════════════════════════════════════════════ -->
+  <div class="main">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <button class="hamburger" onclick="toggleSidebar()">☰</button>
+        <h2 id="pageTitle">Dashboard</h2>
+      </div>
+      <div class="header-right">
+        <div class="user-badge">
+          <span>👤</span>
+          <span id="headerUser">reception1</span>
+          <span class="role-tag badge-info" id="headerRole">Reception</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Content Panels -->
+    <div class="content">
+
+      <!-- ═══════════════════════════════════════
+           RECEPTION PANEL
+           ═══════════════════════════════════════ -->
+      <div class="panel" id="panel-reception">
+        <div class="stats-row" id="receptionStats"></div>
+
+        <!-- Register Patient -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Register New Patient</h3>
+          </div>
+          <form id="patientForm" onsubmit="return registerPatient(event)">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>First Name *</label>
+                <input type="text" id="pFirstName" required placeholder="e.g. Jean">
+              </div>
+              <div class="form-group">
+                <label>Last Name *</label>
+                <input type="text" id="pLastName" required placeholder="e.g. Habimana">
+              </div>
+              <div class="form-group">
+                <label>NIDA Number</label>
+                <input type="text" id="pNIDA" placeholder="1 1990 8 0012345 6 78">
+              </div>
+              <div class="form-group">
+                <label>Date of Birth</label>
+                <input type="date" id="pDOB">
+              </div>
+              <div class="form-group">
+                <label>Phone</label>
+                <input type="tel" id="pPhone" placeholder="+250 7XX XXX XXX">
+              </div>
+              <div class="form-group">
+                <label>Insurance Type *</label>
+                <select id="pInsurance" required>
+                  <option value="">Select insurance…</option>
+                  <option>RAMA</option>
+                  <option>RSSB</option>
+                  <option>MMI</option>
+                  <option>Mutuelle de Santé</option>
+                  <option>Private</option>
+                  <option>None</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Department *</label>
+                <select id="pDept" required></select>
+              </div>
+              <div class="form-group">
+                <label>Patient Type *</label>
+                <div class="toggle-group mt-sm">
+                  <button type="button" class="active" onclick="setPatientType('Outpatient',this)">Outpatient</button>
+                  <button type="button" onclick="setPatientType('Inpatient',this)">Inpatient</button>
+                </div>
+                <input type="hidden" id="pType" value="Outpatient">
+              </div>
+            </div>
+            <div class="mt">
+              <button type="submit" class="btn btn-primary">📋 Check In Patient</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Live Queue Board -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Live Queue Board</h3>
+          </div>
+          <div class="queue-grid" id="queueBoard"></div>
+        </div>
+
+        <!-- Checked-In Patients Table -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Checked-In Patients</h3>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th><th>Queue</th><th>Name</th><th>Department</th><th>Insurance</th><th>Type</th><th>Payment</th><th>Time</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="receptionTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════
+           CASHIER / BILLING PANEL
+           ═══════════════════════════════════════ -->
+      <div class="panel" id="panel-cashier">
+        <div class="stats-row" id="cashierStats"></div>
+
+        <!-- Pending Payments -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Pending Payments</h3>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Queue</th><th>Patient</th><th>Department</th><th>Insurance</th><th>Status</th><th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="cashierPending"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Record Payment Form -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Record Payment</h3>
+          </div>
+          <form id="paymentForm" onsubmit="return recordPayment(event)">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Patient *</label>
+                <select id="payPatient" required></select>
+              </div>
+              <div class="form-group">
+                <label>Amount (RWF) *</label>
+                <input type="number" id="payAmount" required min="0" placeholder="5000">
+              </div>
+              <div class="form-group">
+                <label>Payment Method *</label>
+                <select id="payMethod" required>
+                  <option value="">Select method…</option>
+                  <option>Cash</option>
+                  <option>Mobile Money</option>
+                  <option>Insurance</option>
+                  <option>Bank Transfer</option>
+                  <option>Card</option>
+                </select>
+              </div>
+            </div>
+            <div class="mt">
+              <button type="submit" class="btn btn-success">💳 Record Payment</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Payment History -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Payment History</h3>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Queue</th><th>Patient</th><th>Amount</th><th>Method</th><th>Paid At</th><th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="cashierPaidHistory"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Ancillary Charges -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Nursing / Ancillary Charges (Awaiting Billing)</h3>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Patient</th><th>Act / Item</th><th>Qty</th><th>Logged By</th><th>Status</th><th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="ancillaryCharges"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Void Requests (Placeholder) -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Void Requests</h3>
+            <span class="badge badge-neutral">Placeholder</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Request ID</th><th>Original Entry</th><th>Reason</th><th>Requested By</th><th>Status</th><th>Approver</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="6" class="text-muted text-sm" style="text-align:center;padding:20px;">No void requests — this table structure is reserved for the approval workflow.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════
+           DOCTOR PANEL
+           ═══════════════════════════════════════ -->
+      <div class="panel" id="panel-doctor">
+        <div class="stats-row" id="doctorStats"></div>
+
+        <!-- Patient Queue -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Patient Queue</h3>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Queue</th><th>Patient</th><th>Department</th><th>Insurance</th><th>Payment</th><th>Status</th><th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="doctorQueue"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Consultation Form (hidden until Consult clicked) -->
+        <div class="card hidden" id="consultCard">
+          <div class="card-header">
+            <h3 id="consultTitle">Consultation</h3>
+            <button class="btn btn-outline btn-sm" onclick="closeConsult()">✕ Close</button>
+          </div>
+          <form id="consultForm" onsubmit="return saveConsult(event)">
+            <input type="hidden" id="consultPatientId">
+            <div class="form-grid">
+              <div class="form-group full">
+                <label>Chief Complaint *</label>
+                <textarea id="cComplaint" required placeholder="Patient presents with…"></textarea>
+              </div>
+              <div class="form-group full">
+                <label>Diagnosis (ICD-11 Free Text) *</label>
+                <input type="text" id="cDiagnosis" required placeholder="e.g. 1A00 Cholera">
+              </div>
+              <div class="form-group full">
+                <label>Clinical Notes *</label>
+                <textarea id="cNotes" required placeholder="Detailed clinical findings…" style="min-height:100px;"></textarea>
+              </div>
+              <div class="form-group full">
+                <label>Treatment / Prescription</label>
+                <textarea id="cTreatment" placeholder="Prescribed medications and plan…"></textarea>
+              </div>
+            </div>
+            <div class="mt">
+              <button type="submit" class="btn btn-primary">💾 Save Consultation</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Completed Consultations -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Completed Consultations</h3>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Patient</th><th>Diagnosis</th><th>Complaint</th><th>Doctor</th><th>Date</th><th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="encounterTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════
+           NURSE / MATERNITY PANEL
+           ═══════════════════════════════════════ -->
+      <div class="panel" id="panel-nurse">
+        <!-- Ward Consumable / Act Logger -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Log Ward Consumable / Act</h3>
+          </div>
+          <form id="nurseActForm" onsubmit="return logNurseAct(event)">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Patient *</label>
+                <select id="naPatient" required></select>
+              </div>
+              <div class="form-group">
+                <label>Act / Item *</label>
+                <select id="naAct" required>
+                  <option value="">Select…</option>
+                  <option>Peripheral Line Insertion</option>
+                  <option>Normal Saline (IV)</option>
+                  <option>Dressing Change</option>
+                  <option>Injection</option>
+                  <option>Vitals Check</option>
+                  <option>Catheterization</option>
+                  <option>Wound Suturing</option>
+                  <option>Blood Draw</option>
+                  <option>Oxygen Therapy</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Quantity *</label>
+                <input type="number" id="naQty" required min="1" value="1">
+              </div>
+              <div class="form-group full">
+                <label>Notes</label>
+                <input type="text" id="naNotes" placeholder="Additional notes…">
+              </div>
+            </div>
+            <div class="mt">
+              <button type="submit" class="btn btn-primary">🩺 Log Act</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Logged Acts Table -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Logged Acts</h3>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Patient</th><th>Act / Item</th><th>Qty</th><th>Notes</th><th>Billing</th><th>Time</th><th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="nurseActTable"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <!-- Partogram Entry Form -->
+        <div class="card">
+          <div class="card-header">
+            <h3>🤰 Maternity — Partogram Entry</h3>
+          </div>
+          <form id="partogramForm" onsubmit="return logPartogram(event)">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Patient *</label>
+                <select id="pgPatient" required></select>
+              </div>
+              <div class="form-group">
+                <label>Time of Observation *</label>
+                <input type="time" id="pgTime" required>
+              </div>
+              <div class="form-group">
+                <label>Cervical Dilation (cm) *</label>
+                <input type="number" id="pgDilation" required min="0" max="10" step="0.5">
+              </div>
+              <div class="form-group">
+                <label>Fetal Heart Rate (bpm) *</label>
+                <input type="number" id="pgFHR" required min="60" max="220">
+              </div>
+              <div class="form-group">
+                <label>Contractions / 10 min *</label>
+                <input type="number" id="pgContractions" required min="0" max="10">
+              </div>
+              <div class="form-group full">
+                <label>Observations</label>
+                <input type="text" id="pgObs" placeholder="Membrane status, moulding, descent…">
+              </div>
+            </div>
+            <div class="mt">
+              <button type="submit" class="btn btn-primary">📝 Log Partogram Entry</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Partogram Log Table -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Partogram Log</h3>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Patient</th><th>Time</th><th>Dilation (cm)</th><th>FHR (bpm)</th><th>Contractions</th><th>Observations</th><th>Recorded</th><th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="partogramTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════
+           PHARMACY PANEL
+           ═══════════════════════════════════════ -->
+      <div class="panel" id="panel-pharmacy">
+        <div id="pharmacyAlerts"></div>
+
+        <!-- Add Drug -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Add Drug to Inventory</h3>
+          </div>
+          <form id="drugForm" onsubmit="return addDrug(event)">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Drug Name *</label>
+                <input type="text" id="dName" required placeholder="e.g. Amoxicillin 500mg">
+              </div>
+              <div class="form-group">
+                <label>Category *</label>
+                <select id="dCategory" required>
+                  <option value="">Select…</option>
+                  <option>Antibiotic</option>
+                  <option>Analgesic</option>
+                  <option>Antipyretic</option>
+                  <option>Antihypertensive</option>
+                  <option>Antimalarial</option>
+                  <option>Antiretroviral</option>
+                  <option>IV Fluid</option>
+                  <option>Supplement</option>
+                  <option>Surgical Supply</option>
+                  <option>Other</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Unit Price (RWF) *</label>
+                <input type="number" id="dPrice" required min="0" placeholder="1500">
+              </div>
+              <div class="form-group">
+                <label>Stock Quantity *</label>
+                <input type="number" id="dStock" required min="0" placeholder="100">
+              </div>
+              <div class="form-group">
+                <label>Expiry Date *</label>
+                <input type="date" id="dExpiry" required>
+              </div>
+            </div>
+            <div class="mt">
+              <button type="submit" class="btn btn-primary">📦 Add to Inventory</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Drug Inventory Table -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Drug Inventory</h3>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Drug Name</th><th>Category</th><th>Price (RWF)</th><th>Stock</th><th>Expiry</th><th>Status</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="drugTable"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Dispense Medication -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Dispense Medication</h3>
+          </div>
+          <form id="dispenseForm" onsubmit="return dispenseDrug(event)">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Patient *</label>
+                <select id="dispPatient" required></select>
+              </div>
+              <div class="form-group">
+                <label>Drug *</label>
+                <select id="dispDrug" required></select>
+              </div>
+              <div class="form-group">
+                <label>Quantity *</label>
+                <input type="number" id="dispQty" required min="1" value="1">
+              </div>
+            </div>
+            <div class="mt">
+              <button type="submit" class="btn btn-success">💊 Dispense</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Dispense Log -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Dispense Log</h3>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Patient</th><th>Drug</th><th>Qty</th><th>Dispensed By</th><th>Date</th>
+                </tr>
+              </thead>
+              <tbody id="dispenseTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════
+           HUMAN RESOURCES PANEL
+           ═══════════════════════════════════════ -->
+      <div class="panel" id="panel-hr">
+        <!-- Add Employee -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Add Employee</h3>
+          </div>
+          <form id="empForm" onsubmit="return addEmployee(event)">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Full Name *</label>
+                <input type="text" id="empName" required placeholder="e.g. Marie Uwimana">
+              </div>
+              <div class="form-group">
+                <label>Department *</label>
+                <select id="empDept" required></select>
+              </div>
+              <div class="form-group">
+                <label>Position *</label>
+                <input type="text" id="empPosition" required placeholder="e.g. Senior Nurse">
+              </div>
+              <div class="form-group">
+                <label>Phone</label>
+                <input type="tel" id="empPhone" placeholder="+250 7XX XXX XXX">
+              </div>
+              <div class="form-group">
+                <label>Start Date *</label>
+                <input type="date" id="empStart" required>
+              </div>
+            </div>
+            <div class="mt">
+              <button type="submit" class="btn btn-primary">➕ Add Employee</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Generate HR Document -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Generate Document</h3>
+          </div>
+          <form id="hrDocForm" onsubmit="return generateHRDoc(event)">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Employee *</label>
+                <select id="docEmployee" required></select>
+              </div>
+              <div class="form-group">
+                <label>Document Type *</label>
+                <select id="docType" required>
+                  <option value="">Select…</option>
+                  <option>Employment Contract</option>
+                  <option>Leave Form</option>
+                  <option>Warning Letter</option>
+                  <option>Performance Appraisal</option>
+                </select>
+              </div>
+            </div>
+            <div class="mt">
+              <button type="submit" class="btn btn-primary">📄 Generate Document</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Staff Directory -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Staff Directory</h3>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th><th>Department</th><th>Position</th><th>Phone</th><th>Start Date</th><th>Documents</th><th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="empTable"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Generated Documents -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Generated Documents</h3>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Employee</th><th>Document Type</th><th>Generated By</th><th>Date</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="hrDocTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════
+           ADMIN PANEL
+           ═══════════════════════════════════════ -->
+      <div class="panel" id="panel-admin">
+        <div class="stats-row" id="adminStats"></div>
+
+        <!-- System Users -->
+        <div class="card">
+          <div class="card-header">
+            <h3>System Users</h3>
+            <button class="btn btn-primary btn-sm" onclick="openAddUserModal()">➕ Add User</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Username</th><th>Role</th><th>Status</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="userTable"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Department Configuration -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Department Configuration</h3>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Department</th><th>Service Type</th>
+                </tr>
+              </thead>
+              <tbody id="deptTable"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Master Patient Register -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Master Patient Register</h3>
+            <div class="search-box">
+              <input type="text" id="masterPatientSearch" placeholder="Search patients…" oninput="searchMasterPatients()">
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th><th>Name</th><th>NIDA</th><th>Department</th><th>Insurance</th><th>Payment</th><th>Consultation</th><th>Registered</th><th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="masterPatientTable"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Reset Demo Data -->
+        <div class="card">
+          <div class="card-header">
+            <h3>System Maintenance</h3>
+          </div>
+          <p class="text-sm text-muted mb">Reset all demo data to factory defaults. This clears all patients, payments, encounters, drugs, employees, and documents.</p>
+          <button class="btn btn-danger" onclick="resetAllData()">🗑️ Reset All Demo Data</button>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<!-- ════════════════════════════════════════════
+     MODALS
+     ════════════════════════════════════════════ -->
+
+<!-- User Picker Modal -->
+<div class="modal-overlay" id="userPickerModal">
+  <div class="modal">
+    <h3>Switch User</h3>
+    <div class="user-list" id="userPickerList"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('userPickerModal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add User Modal -->
+<div class="modal-overlay" id="addUserModal">
+  <div class="modal">
+    <h3>Add System User</h3>
+    <form onsubmit="return addSystemUser(event)">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Username *</label>
+          <input type="text" id="newUsername" required placeholder="e.g. drsmith">
+        </div>
+        <div class="form-group">
+          <label>Role *</label>
+          <select id="newRole" required>
+            <option value="">Select role…</option>
+            <option value="reception">Reception</option>
+            <option value="cashier">Cashier / Billing</option>
+            <option value="doctor">Doctor</option>
+            <option value="nurse">Nurse / Maternity</option>
+            <option value="pharmacy">Pharmacy</option>
+            <option value="hr">Human Resources</option>
+            <option value="itadmin">IT / Admin</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" onclick="closeModal('addUserModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Add User</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Detail View Modal (generic — used for patient & encounter details) -->
+<div class="modal-overlay" id="detailModal">
+  <div class="modal">
+    <h3 id="detailModalTitle">Details</h3>
+    <div id="detailModalBody"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('detailModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
