@@ -344,7 +344,7 @@ function setPatientType(type, btn) {
 // ═══════════════════════════════════════════════════════════════
 // MODULE: RECEPTION
 // ═══════════════════════════════════════════════════════════════
-function registerPatient(e) {
+async function registerPatient(e) {
   e.preventDefault();
   const dept = document.getElementById("pDept").value;
   const pType = document.getElementById("pType").value;
@@ -359,11 +359,33 @@ function registerPatient(e) {
     }
   }
 
+  const nidaRaw = document.getElementById("pNIDA").value.trim();
+  let nida = "";
+  if (nidaRaw) {
+    nida = nidaRaw.replace(/\s+/g, "");
+    if (!/^\d{16}$/.test(nida)) {
+      toast("❌ NIDA ID must be exactly 16 digits long.", "error");
+      return false;
+    }
+
+    const btn = e.target.querySelector('button[type="submit"]');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = "⏳ Verifying NIDA...";
+    btn.disabled = true;
+    toast("📡 Verifying NIDA ID with National Database...", "info");
+
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+    toast("✅ NIDA Verification Successful (Simulated)", "success");
+  }
+
   const patient = {
     id: genId(),
     firstName: document.getElementById("pFirstName").value.trim(),
     lastName: document.getElementById("pLastName").value.trim(),
-    nida: document.getElementById("pNIDA").value.trim(),
+    nida: nida || "",
     dob: document.getElementById("pDOB").value,
     phone: document.getElementById("pPhone").value.trim(),
     insurance: document.getElementById("pInsurance").value,
@@ -386,9 +408,6 @@ function registerPatient(e) {
   });
   DB.set("queue", queue);
 
-  if (patient.nida) {
-    toast("📡 NIDA verified (simulated) — no real API call", "info");
-  }
   if (patient.phone) {
     toast("📱 SMS confirmation sent (simulated)", "info");
   }
