@@ -36,6 +36,7 @@ const SEED_USERS = [
   { username: "pharm1", role: "pharmacy", status: "active" },
   { username: "hr1", role: "hr", status: "active" },
   { username: "itadmin", role: "itadmin", status: "active" },
+  { username: "hospadmin", role: "itadmin", status: "active" },
 ];
 
 const SEED_DEPARTMENTS = [
@@ -56,7 +57,7 @@ const ROLE_LABELS = {
   nurse: "Nurse / Maternity",
   pharmacy: "Pharmacy",
   hr: "Human Resources",
-  itadmin: "IT / Admin",
+  itadmin: "Hospital / IT Admin",
 };
 
 const ROLE_COLORS = {
@@ -75,6 +76,7 @@ const PANEL_TITLES = {
   doctor: "👨‍⚕️ Consultations",
   nurse: "👩‍⚕️ Nursing / Maternity",
   pharmacy: "💊 Pharmacy",
+  diagnostics: "🔬 Diagnostics (Lab & PACS)",
   hr: "🗂️ Human Resources",
   admin: "⚙️ Administration",
 };
@@ -93,7 +95,17 @@ const ROLE_DEFAULT_PANEL = {
 // SEED DATA INIT
 // ────────────────────────────────────────────
 function initSeedData() {
-  if (!DB.get("users")) DB.set("users", SEED_USERS);
+  if (!DB.get("users")) {
+    DB.set("users", SEED_USERS);
+  } else {
+    // Ensure hospadmin is injected into existing demo data
+    const existingUsers = DB.getArr("users");
+    if (!existingUsers.some(u => u.username === "hospadmin")) {
+      existingUsers.push({ username: "hospadmin", role: "itadmin", status: "active" });
+      DB.set("users", existingUsers);
+    }
+  }
+  
   if (!DB.get("departments")) DB.set("departments", SEED_DEPARTMENTS);
   [
     "patients",
@@ -105,6 +117,7 @@ function initSeedData() {
     "dispensed",
     "employees",
     "hrDocs",
+    "vitals"
   ].forEach((k) => {
     if (!DB.get(k)) DB.set(k, []);
   });
@@ -240,6 +253,7 @@ function refreshPanel(panel) {
     doctor: refreshDoctor,
     nurse: refreshNurse,
     pharmacy: refreshPharmacy,
+    diagnostics: refreshDiagnostics,
     hr: refreshHR,
     admin: refreshAdmin,
   };
@@ -312,8 +326,13 @@ function populatePatientSelects() {
   const opts = patients
     .filter((p) => activeIds.has(p.id))
     .map((p) => ({ value: p.id, label: `${p.firstName} ${p.lastName}` }));
-  ["naPatient", "pgPatient", "dispPatient", "payPatient"].forEach((id) => {
+  ["naPatient", "pgPatient", "dispPatient", "payPatient", "vPatient"].forEach((id) => {
     populateSelect(id, opts, "Select patient…");
+  });
+
+  const allOpts = patients.map((p) => ({ value: p.id, label: `${p.firstName} ${p.lastName} (${p.nida || 'No NIDA'})` }));
+  ["mergePrimary", "mergeDuplicate"].forEach((id) => {
+    populateSelect(id, allOpts, "Select patient…");
   });
 }
 
@@ -347,17 +366,7 @@ function setPatientType(type, btn) {
 async function registerPatient(e) {
   e.preventDefault();
   const dept = document.getElementById("pDept").value;
-  const pType = document.getElementById("pType").value;
-
-  // Enforce department/type rule
-  if (pType === "Inpatient") {
-    const depts = DB.getArr("departments");
-    const deptObj = depts.find((d) => d.name === dept);
-    if (deptObj && deptObj.type === "Outpatient Only") {
-      toast(`${dept} does not accept inpatients. Please change department or patient type.`, "error");
-      return false;
-    }
-  }
+  // Patient type is now determined by the doctor. Defaults to Outpatient.
 
   const nidaRaw = document.getElementById("pNIDA").value.trim();
   let nida = "";
@@ -390,7 +399,7 @@ async function registerPatient(e) {
     phone: document.getElementById("pPhone").value.trim(),
     insurance: document.getElementById("pInsurance").value,
     department: dept,
-    patientType: pType,
+    patientType: "Outpatient",
     registeredAt: new Date().toISOString(),
   };
   const patients = DB.getArr("patients");
@@ -398,13 +407,24 @@ async function registerPatient(e) {
   DB.set("patients", patients);
 
   const queue = DB.getArr("queue");
-  const queueNum = queue.length + 1;
+  
+  // Calculate departmental queue number
+  let deptCount = 0;
+  for (let q of queue) {
+    const p = patients.find(pat => pat.id === q.patientId);
+    if (p && p.department === dept) {
+      deptCount++;
+    }
+  }
+  const queueNum = deptCount + 1;
+
   queue.push({
     id: genId(),
     patientId: patient.id,
     queueNumber: queueNum,
     checkedInAt: new Date().toISOString(),
     status: "waiting",
+    journey: { triage: false, doctor: false, lab: false, pharmacy: false }
   });
   DB.set("queue", queue);
 
@@ -414,10 +434,6 @@ async function registerPatient(e) {
 
   toast(`Patient ${patient.firstName} ${patient.lastName} checked in — Queue #${queueNum}`, "success");
   document.getElementById("patientForm").reset();
-  selectedPatientType = "Outpatient";
-  document.getElementById("pType").value = "Outpatient";
-  const toggleBtns = document.querySelectorAll("#patientForm .toggle-group button");
-  toggleBtns.forEach((b, i) => b.classList.toggle("active", i === 0));
   refreshReception();
   return false;
 }
@@ -452,8 +468,105 @@ function viewPatientDetail(patientId) {
       }
       <div class="detail-item"><div class="detail-label">Registered</div><div class="detail-value">${fmtDateTime(p.registeredAt)}</div></div>
     </div>
+    
+    <div style="margin-top: 20px; display: flex; gap: 10px;">
+      <button class="btn btn-primary btn-sm" onclick="printPatientLabel('${patientId}')">🖨️ Print Label / L.510 (PDF)</button>
+    </div>
+
+    <hr class="divider">
+    <h4>Patient Vault (Files & Documents)</h4>
+    <div id="patientVaultFiles">
+      ${renderPatientFiles(patientId)}
+    </div>
+    <div class="mt-sm">
+      <input type="file" id="patientFileInput" style="display:none" onchange="handleFileUpload(event, '${patientId}')">
+      <button class="btn btn-outline btn-sm" onclick="document.getElementById('patientFileInput').click()">📎 Upload File (< 5MB)</button>
+    </div>
   `;
   openModal("detailModal");
+}
+
+function renderPatientFiles(patientId) {
+  const files = DB.getArr("patientFiles_" + patientId);
+  if (files.length === 0) return '<p class="text-sm text-muted">No files uploaded yet.</p>';
+  return files.map((f, i) => `
+    <div style="display:flex; justify-content:space-between; align-items:center; padding: 5px; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 5px;">
+      <a href="${f.data}" download="${f.name}" style="color:var(--primary); text-decoration:none;">📄 ${escHtml(f.name)}</a>
+      <button class="btn btn-danger btn-sm" onclick="deletePatientFile('${patientId}', ${i})" title="Delete File">✕</button>
+    </div>
+  `).join('');
+}
+
+function handleFileUpload(e, patientId) {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    toast("❌ File is too large. Max size is 5MB.", "error");
+    return;
+  }
+  
+  const reader = new FileReader();
+  reader.onload = function(event) {
+    const files = DB.getArr("patientFiles_" + patientId);
+    files.push({
+      name: file.name,
+      type: file.type,
+      data: event.target.result, // base64 string
+      uploadedAt: new Date().toISOString()
+    });
+    
+    try {
+      DB.set("patientFiles_" + patientId, files);
+      toast("✅ File uploaded successfully", "success");
+      document.getElementById("patientVaultFiles").innerHTML = renderPatientFiles(patientId);
+    } catch (err) {
+      if (err.name === 'QuotaExceededError') {
+        toast("❌ Browser storage full. Cannot save file.", "error");
+      }
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+function deletePatientFile(patientId, index) {
+  if (!confirm("Delete this file?")) return;
+  const files = DB.getArr("patientFiles_" + patientId);
+  files.splice(index, 1);
+  DB.set("patientFiles_" + patientId, files);
+  document.getElementById("patientVaultFiles").innerHTML = renderPatientFiles(patientId);
+  toast("File deleted", "info");
+}
+
+function printPatientLabel(patientId) {
+  const p = getPatient(patientId);
+  const printWindow = window.open("", "_blank");
+  printWindow.document.write(`
+    <html>
+    <head>
+      <title>Print Label - ${patientName(p)}</title>
+      <style>
+        body { font-family: monospace; margin: 20px; }
+        .label { border: 2px dashed #000; padding: 20px; width: 300px; }
+        h2 { margin: 0 0 10px 0; }
+        p { margin: 5px 0; }
+      </style>
+    </head>
+    <body>
+      <div class="label">
+        <h2>DMC Hospital</h2>
+        <p><strong>Name:</strong> ${patientName(p)}</p>
+        <p><strong>DOB:</strong> ${p.dob || "—"}</p>
+        <p><strong>ID:</strong> ${p.nida || "—"}</p>
+        <p><strong>Dept:</strong> ${p.department}</p>
+        <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
+      </div>
+      <script>
+        window.onload = function() { window.print(); }
+      </script>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
 }
 
 function dischargePatient(patientId) {
@@ -706,6 +819,13 @@ function refreshCashier() {
 // ═══════════════════════════════════════════════════════════════
 // MODULE: DOCTOR
 // ═══════════════════════════════════════════════════════════════
+function setDoctorPatientType(type, btn) {
+  document.getElementById("cPatientType").value = type;
+  const btns = btn.parentElement.querySelectorAll("button");
+  btns.forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+}
+
 function openConsult(patientId) {
   const status = getPaymentStatus(patientId);
   if (status !== "paid") {
@@ -722,6 +842,44 @@ function openConsult(patientId) {
 function closeConsult() {
   document.getElementById("consultCard").classList.add("hidden");
   document.getElementById("consultForm").reset();
+  document.getElementById("cNotes").value = "";
+}
+
+function loadClinicalTemplate(templateId) {
+  const notesField = document.getElementById("cNotes");
+  let templateText = "";
+  
+  if (templateId === "general") {
+    templateText = `SUBJECTIVE:\n- \n\nOBJECTIVE:\n- Vitals:\n- Gen:\n- HEENT:\n- CV:\n- Pulm:\n- Abd:\n- Neuro:\n\nASSESSMENT:\n1. \n\nPLAN:\n- `;
+  } else if (templateId === "pediatric") {
+    templateText = `SUBJECTIVE:\n- Caregiver reports: \n- Eating/Drinking: \n- Wet Diapers: \n\nOBJECTIVE:\n- Weight:  kg\n- Temp:  °C\n- Gen: Alert, active, in no acute distress.\n- HEENT: \n- Resp: Clear to auscultation bilaterally, no retractions.\n- Skin: \n\nASSESSMENT:\n1. \n\nPLAN:\n- `;
+  } else if (templateId === "antenatal") {
+    templateText = `SUBJECTIVE:\n- EGA:  weeks\n- Fetal movement: \n- Bleeding/Fluid leak: \n- Contractions: \n\nOBJECTIVE:\n- BP: \n- Weight: \n- Fundal Height:  cm\n- FHR:  bpm\n- Presentation: \n\nASSESSMENT:\n1. Intrauterine pregnancy at   weeks.\n\nPLAN:\n- Routine ANC labs\n- Return to clinic in   weeks\n- `;
+  }
+  
+  notesField.value = templateText;
+}
+
+function calculateDose() {
+  const w = parseFloat(document.getElementById("doseWeight").value);
+  const m = parseFloat(document.getElementById("doseMgKg").value);
+  const c = parseFloat(document.getElementById("doseConc").value);
+  const f = parseFloat(document.getElementById("doseFreq").value);
+  
+  const resultEl = document.getElementById("doseResult");
+  if (!w || !m || !c || !f) {
+    resultEl.textContent = "0 mL per dose";
+    return;
+  }
+  
+  const totalDailyMg = w * m;
+  const singleDoseMg = totalDailyMg / f;
+  const mlPerDose = (singleDoseMg / c).toFixed(1);
+  resultEl.textContent = `${mlPerDose} mL per dose (Total: ${totalDailyMg}mg/day)`;
+}
+
+function openTeleconsultation() {
+  openModal("teleconsultModal");
 }
 
 function saveConsult(e) {
@@ -887,6 +1045,36 @@ function logNurseAct(e) {
   return false;
 }
 
+function logVitals(e) {
+  e.preventDefault();
+  const patientId = document.getElementById("vPatient").value;
+  if (!patientId) {
+    toast("Please select a patient", "error");
+    return false;
+  }
+  
+  const vitalsEntry = {
+    id: genId(),
+    patientId,
+    temp: document.getElementById("vTemp").value,
+    bp: document.getElementById("vBP").value,
+    hr: document.getElementById("vHR").value,
+    rr: document.getElementById("vRR").value,
+    spo2: document.getElementById("vSpO2").value,
+    loggedBy: currentUser?.username || "unknown",
+    timestamp: new Date().toISOString()
+  };
+  
+  const vitals = DB.getArr("vitals");
+  vitals.push(vitalsEntry);
+  DB.set("vitals", vitals);
+  
+  toast("Vitals recorded successfully", "success");
+  document.getElementById("vitalsForm").reset();
+  refreshNurse();
+  return false;
+}
+
 function deleteNurseAct(actId) {
   if (!confirm("Delete this logged act?")) return;
   let acts = DB.getArr("nurseActs");
@@ -934,6 +1122,27 @@ function deletePartogram(pgId) {
 
 function refreshNurse() {
   populatePatientSelects();
+
+  const vitals = DB.getArr("vitals");
+  document.getElementById("vitalsTable").innerHTML = 
+    vitals.length === 0
+      ? '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:20px;">No vitals logged</td></tr>'
+      : vitals
+          .slice()
+          .reverse()
+          .map((v) => {
+            const p = getPatient(v.patientId);
+            return `<tr>
+        <td>${escHtml(patientName(p))}</td>
+        <td>${fmtDateTime(v.timestamp)}</td>
+        <td>${v.temp ? v.temp + " °C" : "—"}</td>
+        <td>${escHtml(v.bp || "—")}</td>
+        <td>${v.hr ? v.hr + " bpm" : "—"}</td>
+        <td>${v.rr ? v.rr + " bpm" : "—"}</td>
+        <td>${v.spo2 ? v.spo2 + " %" : "—"}</td>
+      </tr>`;
+          })
+          .join("");
 
   const acts = DB.getArr("nurseActs");
   document.getElementById("nurseActTable").innerHTML =
@@ -1055,6 +1264,18 @@ function dispenseDrug(e) {
     return false;
   }
 
+  // MOCK RxNorm Interaction Check
+  const dispensed = DB.getArr("dispensed");
+  const patientHistory = dispensed.filter(d => d.patientId === patientId).map(d => d.drugName.toLowerCase());
+  const newDrugName = drugs[idx].name.toLowerCase();
+  
+  if ((newDrugName.includes("warfarin") && patientHistory.some(d => d.includes("aspirin"))) || 
+      (newDrugName.includes("aspirin") && patientHistory.some(d => d.includes("warfarin")))) {
+    if (!confirm("⚠️ SEVERE INTERACTION DETECTED: Aspirin + Warfarin increases bleeding risk.\n\nOverride and dispense anyway?")) {
+      return false;
+    }
+  }
+
   drugs[idx].stock -= qty;
   DB.set("drugs", drugs);
 
@@ -1067,7 +1288,7 @@ function dispenseDrug(e) {
     dispensedBy: currentUser?.username || "unknown",
     dispensedAt: new Date().toISOString(),
   };
-  const dispensed = DB.getArr("dispensed");
+  // dispensed already fetched above
   dispensed.push(record);
   DB.set("dispensed", dispensed);
 
@@ -1165,6 +1386,97 @@ function refreshPharmacy() {
           .join("");
 
   populatePatientSelects();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MODULE: DIAGNOSTICS (LAB & PACS)
+// ═══════════════════════════════════════════════════════════════
+
+function orderLabTest() {
+  const patientId = document.getElementById("labPatient").value;
+  const testName = document.getElementById("labTest").value;
+  if (!patientId) {
+    toast("Please select a patient", "error");
+    return;
+  }
+  
+  const labs = DB.getArr("labs");
+  labs.push({
+    id: genId(),
+    patientId,
+    testName,
+    status: "Pending",
+    result: null,
+    orderedAt: new Date().toISOString()
+  });
+  DB.set("labs", labs);
+  toast(`🧪 ${testName} ordered successfully`, "success");
+  refreshDiagnostics();
+}
+
+function simulateLabResult() {
+  const labs = DB.getArr("labs");
+  const pendingLabs = labs.filter(l => l.status === "Pending");
+  
+  if (pendingLabs.length === 0) {
+    toast("No pending labs to process", "info");
+    return;
+  }
+  
+  // Process the oldest pending lab
+  const lab = pendingLabs[0];
+  lab.status = "Completed";
+  
+  if (lab.testName === "CBC") lab.result = "WBC: 7.2 | Hgb: 14.5 | Plt: 210";
+  else if (lab.testName === "CMP") lab.result = "Na: 140 | K: 4.1 | Cr: 0.9 | Glu: 95";
+  else if (lab.testName === "Lipid") lab.result = "Chol: 180 | Trig: 120 | HDL: 55 | LDL: 101";
+  else lab.result = "Normal findings. Negative for pathogens.";
+  
+  DB.set("labs", labs);
+  
+  // Simulate HL7 Toast Notification
+  const p = getPatient(lab.patientId);
+  toast(`[HL7 ALERT] New Lab Result for ${patientName(p)}: ${lab.testName}`, "info");
+  refreshDiagnostics();
+}
+
+const MOCK_PACS_SCANS = [
+  { name: "Chest X-Ray (AP)", date: "2023-10-15", img: "https://upload.wikimedia.org/wikipedia/commons/b/b3/Chest_Xray_PA_3-8-2010.png" },
+  { name: "Brain MRI (T1)", date: "2023-10-16", img: "https://upload.wikimedia.org/wikipedia/commons/3/36/Mri-brain-normal.jpg" },
+  { name: "Abdominal CT", date: "2023-10-17", img: "https://upload.wikimedia.org/wikipedia/commons/9/90/Ct-scan_of_abdomen.jpg" }
+];
+
+function viewPacsImage(index) {
+  const scan = MOCK_PACS_SCANS[index];
+  document.getElementById("pacsPlaceholder").innerHTML = `<img src="${scan.img}" style="max-width:100%; max-height:100%; border-radius: 8px;">`;
+  document.getElementById("pacsTools").style.display = "flex";
+}
+
+function refreshDiagnostics() {
+  populatePatientSelects();
+  
+  const labs = DB.getArr("labs");
+  document.getElementById("labTable").innerHTML = labs.length === 0
+    ? '<tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:20px;">No labs ordered</td></tr>'
+    : labs.slice().reverse().map(l => {
+        const p = getPatient(l.patientId);
+        const bClass = l.status === "Completed" ? "badge-completed" : "badge-pending";
+        return `<tr>
+          <td>${escHtml(patientName(p))}</td>
+          <td>${escHtml(l.testName)}</td>
+          <td><span class="badge ${bClass}">${l.status}</span></td>
+          <td class="text-sm">${escHtml(l.result || "—")}</td>
+          <td>${fmtDateTime(l.orderedAt)}</td>
+        </tr>`;
+      }).join("");
+      
+  // Populate PACS List
+  document.getElementById("pacsList").innerHTML = MOCK_PACS_SCANS.map((scan, i) => `
+    <li style="padding: 10px; border-bottom: 1px solid var(--border); cursor: pointer;" onclick="viewPacsImage(${i})">
+      <strong>${scan.name}</strong><br>
+      <span class="text-muted text-sm">${scan.date}</span>
+    </li>
+  `).join("");
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1291,7 +1603,43 @@ Rating:  [ ] Excellent  [ ] Good  [ ] Satisfactory  [ ] Needs Improvement
 Generated: ${fmtDateTime(doc.generatedAt)}`,
   };
 
-  alert(templates[doc.type] || `Document: ${doc.type}\nEmployee: ${emp?.name}\nDate: ${fmtDateTime(doc.generatedAt)}`);
+  const htmlContent = `
+    <html>
+    <head>
+      <title>${doc.type} - ${emp?.name}</title>
+      <style>
+        body { font-family: Arial, sans-serif; margin: 40px; color: #333; line-height: 1.6; }
+        .header { border-bottom: 2px solid #ccc; padding-bottom: 10px; margin-bottom: 20px; }
+        h1 { color: #0056b3; margin: 0; }
+        .footer { margin-top: 40px; font-size: 12px; color: #777; border-top: 1px solid #eee; padding-top: 10px; }
+        pre { font-family: inherit; white-space: pre-wrap; }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>DMC Hospital - HR Department</h1>
+        <p><strong>Document Type:</strong> ${doc.type}</p>
+        <p><strong>Date:</strong> ${new Date(doc.generatedAt).toLocaleDateString()}</p>
+      </div>
+      
+      <div class="content">
+        <pre>${templates[doc.type] || "No template found."}</pre>
+      </div>
+
+      <div class="footer">
+        Generated by: ${doc.generatedBy} on ${fmtDateTime(doc.generatedAt)}<br>
+        <em>Official HR Document — Save as PDF to upload to Employee Vault.</em>
+      </div>
+      <script>
+        window.onload = function() { window.print(); }
+      </script>
+    </body>
+    </html>
+  `;
+  
+  const printWindow = window.open("", "_blank");
+  printWindow.document.write(htmlContent);
+  printWindow.document.close();
 }
 
 function deleteHRDoc(docId) {
@@ -1303,17 +1651,105 @@ function deleteHRDoc(docId) {
   refreshHR();
 }
 
+function handleEmpFileUpload(e) {
+  const empId = document.getElementById("vaultEmployee").value;
+  if (!empId) {
+    toast("Please select an employee first", "error");
+    e.target.value = "";
+    return;
+  }
+  const file = e.target.files[0];
+  if (!file) return;
+
+  if (file.size > 5 * 1024 * 1024) {
+    toast("File exceeds 5MB limit", "error");
+    e.target.value = "";
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const dataUrl = ev.target.result;
+      const fileRecord = {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        dataUrl: dataUrl,
+        uploadedAt: new Date().toISOString()
+      };
+      
+      const files = DB.getArr("empFiles_" + empId);
+      files.push(fileRecord);
+      DB.set("empFiles_" + empId, files);
+      
+      toast("File securely saved to Employee Vault", "success");
+      e.target.value = "";
+      refreshEmployeeVault();
+    } catch (err) {
+      toast("Storage error. File might be too large.", "error");
+      console.error(err);
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+function deleteEmpFile(empId, index) {
+  if (!confirm("Delete this file?")) return;
+  const files = DB.getArr("empFiles_" + empId);
+  files.splice(index, 1);
+  DB.set("empFiles_" + empId, files);
+  refreshEmployeeVault();
+  toast("File deleted", "info");
+}
+
+function refreshEmployeeVault() {
+  const empId = document.getElementById("vaultEmployee").value;
+  const vaultEl = document.getElementById("empVaultFiles");
+  if (!empId) {
+    vaultEl.innerHTML = '<p class="text-muted text-sm">Select an employee to view their files.</p>';
+    return;
+  }
+  
+  const files = DB.getArr("empFiles_" + empId);
+  if (files.length === 0) {
+    vaultEl.innerHTML = '<p class="text-muted text-sm">No files uploaded for this employee.</p>';
+    return;
+  }
+  
+  vaultEl.innerHTML = files.map((f, i) => {
+    let preview = "";
+    if (f.type.startsWith("image/")) {
+      preview = `<img src="${f.dataUrl}" style="max-width:100px; max-height:100px; border-radius:4px;">`;
+    } else {
+      preview = `<div style="font-size:32px;">📄</div>`;
+    }
+    
+    return `
+      <div style="display:flex; align-items:center; gap:15px; padding:10px; border:1px solid var(--border); border-radius:4px; margin-bottom:10px;">
+        ${preview}
+        <div style="flex:1;">
+          <strong>${escHtml(f.name)}</strong><br>
+          <span class="text-sm text-muted">${(f.size/1024).toFixed(1)} KB • Uploaded ${fmtDate(f.uploadedAt)}</span>
+        </div>
+        <div class="btn-group">
+          <a href="${f.dataUrl}" download="${escHtml(f.name)}" class="btn btn-outline btn-sm">⬇️ Download</a>
+          <button class="btn btn-danger btn-sm" onclick="deleteEmpFile('${empId}', ${i})">✕</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
 function refreshHR() {
   populateDeptSelects();
   const employees = DB.getArr("employees");
   const docs = DB.getArr("hrDocs");
 
-  // Employee select
-  populateSelect(
-    "docEmployee",
-    employees.map((e) => ({ value: e.id, label: e.name })),
-    "Select employee…"
-  );
+  // Employee selects
+  const empOpts = employees.map((e) => ({ value: e.id, label: e.name }));
+  populateSelect("docEmployee", empOpts, "Select employee…");
+  populateSelect("vaultEmployee", empOpts, "Select employee…");
 
   // Staff directory
   document.getElementById("empTable").innerHTML =
@@ -1431,6 +1867,77 @@ function searchMasterPatients() {
   });
 }
 
+function mergePatients(e) {
+  e.preventDefault();
+  const primaryId = document.getElementById("mergePrimary").value;
+  const duplicateId = document.getElementById("mergeDuplicate").value;
+
+  if (!primaryId || !duplicateId) return false;
+  if (primaryId === duplicateId) {
+    toast("❌ Primary and Duplicate patients cannot be the same.", "error");
+    return false;
+  }
+
+  const pPrimary = getPatient(primaryId);
+  const pDup = getPatient(duplicateId);
+
+  if (!confirm(`Are you sure you want to merge ${patientName(pDup)} INTO ${patientName(pPrimary)}?\n\nThis action cannot be undone.`)) return false;
+
+  // 1. Update queue (if both exist in queue, we just update the ID. A true system might deduplicate queue entries).
+  const queue = DB.getArr("queue");
+  queue.forEach(q => { if (q.patientId === duplicateId) q.patientId = primaryId; });
+  DB.set("queue", queue);
+
+  // 2. Update payments
+  const payments = DB.getObj("payments");
+  if (payments[duplicateId]) {
+    // If primary doesn't have a payment, take the duplicate's.
+    if (!payments[primaryId]) payments[primaryId] = payments[duplicateId];
+    delete payments[duplicateId];
+  }
+  DB.set("payments", payments);
+
+  // 3. Update arrays linking by patientId
+  const updateLinkedArray = (key) => {
+    const arr = DB.getArr(key);
+    let changed = false;
+    arr.forEach(item => {
+      if (item.patientId === duplicateId) {
+        item.patientId = primaryId;
+        changed = true;
+      }
+    });
+    if (changed) DB.set(key, arr);
+  };
+
+  updateLinkedArray("encounters");
+  updateLinkedArray("nurseActs");
+  updateLinkedArray("partograms");
+  updateLinkedArray("dispensed");
+
+  // 4. Merge Files
+  const dupFiles = DB.getArr("patientFiles_" + duplicateId);
+  if (dupFiles.length > 0) {
+    const primaryFiles = DB.getArr("patientFiles_" + primaryId);
+    DB.set("patientFiles_" + primaryId, primaryFiles.concat(dupFiles));
+    localStorage.removeItem("patientFiles_" + duplicateId);
+  }
+
+  // 5. Remove duplicate patient
+  let patients = DB.getArr("patients");
+  patients = patients.filter(p => p.id !== duplicateId);
+  DB.set("patients", patients);
+
+  toast(`✅ Successfully merged ${patientName(pDup)} into ${patientName(pPrimary)}`, "success");
+  
+  // Reset form
+  document.getElementById("mergePrimary").value = "";
+  document.getElementById("mergeDuplicate").value = "";
+  
+  refreshAdmin();
+  return false;
+}
+
 function refreshAdmin() {
   const patients = DB.getArr("patients");
   const payments = DB.getObj("payments");
@@ -1457,6 +1964,68 @@ function refreshAdmin() {
     <div class="stat-card"><div class="stat-label">Staff</div><div class="stat-value">${employees.length}</div></div>
   `;
 
+  // --- Financial Dashboard calculations ---
+  const depts = DB.getArr("departments");
+  const deptRevenue = {};
+  depts.forEach(d => deptRevenue[d.name] = 0);
+  Object.keys(payments).forEach(pid => {
+    const p = payments[pid];
+    if (p.status === "paid") {
+      const patient = getPatient(pid);
+      if (patient && patient.department) {
+        if (deptRevenue[patient.department] === undefined) deptRevenue[patient.department] = 0;
+        deptRevenue[patient.department] += p.amount;
+      }
+    }
+  });
+
+  const revEl = document.getElementById("totalRevenueDisplay");
+  if (revEl) revEl.textContent = totalRevenue.toLocaleString() + " RWF";
+
+  let conicString = "";
+  let legendHtml = "";
+  let startDeg = 0;
+  const colors = ["#4F46E5", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#3B82F6", "#F43F5E"];
+  
+  Object.keys(deptRevenue).forEach((dept, idx) => {
+    const rev = deptRevenue[dept];
+    if (totalRevenue > 0 && rev > 0) {
+      const deg = (rev / totalRevenue) * 360;
+      const c = colors[idx % colors.length];
+      conicString += `${c} ${startDeg}deg ${startDeg + deg}deg, `;
+      startDeg += deg;
+      legendHtml += `<div><span style="display:inline-block;width:12px;height:12px;background:${c};border-radius:2px;margin-right:8px;"></span>${dept}: ${rev.toLocaleString()} RWF</div>`;
+    }
+  });
+  
+  const pieEl = document.getElementById("revenuePieChart");
+  const legendEl = document.getElementById("revenueLegend");
+  if (pieEl && legendEl) {
+    if (conicString) {
+      conicString = conicString.slice(0, -2);
+      pieEl.style.background = `conic-gradient(${conicString})`;
+    } else {
+      pieEl.style.background = "#333";
+      legendHtml = "<div class='text-muted'>No revenue yet.</div>";
+    }
+    legendEl.innerHTML = legendHtml;
+  }
+
+  // --- Queue Status calculations ---
+  const labs = DB.getArr("labs");
+  const waitTriage = queue.filter(q => getPaymentStatus(q.patientId) === "pending").length;
+  const waitDoctor = pendingConsults;
+  const waitLab = labs.filter(l => l.status === "Pending").length;
+  
+  if (document.getElementById("adminTotalPatients")) {
+    document.getElementById("adminTotalPatients").textContent = queue.length;
+    document.getElementById("adminWaitTriage").textContent = waitTriage;
+    document.getElementById("adminWaitDoctor").textContent = waitDoctor;
+    document.getElementById("adminWaitLab").textContent = waitLab;
+    document.getElementById("adminWaitPharm").textContent = "0"; // Mock zero
+  }
+  // ----------------------------------------
+
   // Users table
   const users = DB.getArr("users");
   document.getElementById("userTable").innerHTML = users
@@ -1480,7 +2049,7 @@ function refreshAdmin() {
     .join("");
 
   // Departments table
-  const depts = DB.getArr("departments");
+  // Departments table (depts already declared above)
   document.getElementById("deptTable").innerHTML = depts
     .map((d) => {
       const typeBadge =
@@ -1554,5 +2123,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (window.innerWidth <= 900) {
       document.getElementById("sidebar").classList.remove("open");
     }
+  });
+
+  // Cross-tab real-time synchronization
+  window.addEventListener("storage", (e) => {
+    // When localStorage changes in another tab, immediately refresh the current active panel
+    refreshPanel();
   });
 });

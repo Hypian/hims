@@ -41,6 +41,9 @@
         <div class="nav-item" data-panel="pharmacy" data-roles="pharmacy,itadmin">
           <span class="icon">💊</span> Pharmacy
         </div>
+        <div class="nav-item" data-panel="diagnostics" data-roles="doctor,nurse,itadmin">
+          <span class="icon">🔬</span> Diagnostics (Lab & PACS)
+        </div>
       </div>
       <!-- Operations -->
       <div class="nav-group">
@@ -136,12 +139,14 @@
                 <select id="pDept" required></select>
               </div>
               <div class="form-group">
-                <label>Patient Type *</label>
-                <div class="toggle-group mt-sm">
-                  <button type="button" class="active" onclick="setPatientType('Outpatient',this)">Outpatient</button>
-                  <button type="button" onclick="setPatientType('Inpatient',this)">Inpatient</button>
-                </div>
-                <input type="hidden" id="pType" value="Outpatient">
+                <label>ESI Triage Level</label>
+                <select id="pTriage">
+                  <option value="5">Level 5 (Non-Urgent)</option>
+                  <option value="4">Level 4 (Less Urgent)</option>
+                  <option value="3">Level 3 (Urgent)</option>
+                  <option value="2">Level 2 (Emergent)</option>
+                  <option value="1">Level 1 (Resuscitation)</option>
+                </select>
               </div>
             </div>
             <div class="mt">
@@ -293,6 +298,39 @@
       <div class="panel" id="panel-doctor">
         <div class="stats-row" id="doctorStats"></div>
 
+        <!-- Pediatric Dosing Calculator -->
+        <div class="card">
+          <div class="card-header">
+            <h3>🧮 Pediatric Dosing Calculator</h3>
+          </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Child Weight (kg)</label>
+              <input type="number" id="doseWeight" placeholder="e.g. 15" oninput="calculateDose()">
+            </div>
+            <div class="form-group">
+              <label>Drug Dose (mg/kg/day)</label>
+              <input type="number" id="doseMgKg" placeholder="e.g. 50 (for Amoxicillin)" oninput="calculateDose()">
+            </div>
+            <div class="form-group">
+              <label>Concentration (mg/mL)</label>
+              <input type="number" id="doseConc" placeholder="e.g. 25 (for 125mg/5mL)" oninput="calculateDose()">
+            </div>
+            <div class="form-group">
+              <label>Doses per day</label>
+              <select id="doseFreq" onchange="calculateDose()">
+                <option value="1">Once daily</option>
+                <option value="2">Twice daily (BID)</option>
+                <option value="3">Three times daily (TID)</option>
+                <option value="4">Four times daily (QID)</option>
+              </select>
+            </div>
+          </div>
+          <div class="mt" style="padding: 15px; background: var(--bg); border-radius: 4px; border-left: 4px solid var(--primary);">
+            <strong>Calculated Dose:</strong> <span id="doseResult" style="font-size: 18px; color: var(--primary);">0 mL per dose</span>
+          </div>
+        </div>
+
         <!-- Patient Queue -->
         <div class="card">
           <div class="card-header">
@@ -314,22 +352,51 @@
         <div class="card hidden" id="consultCard">
           <div class="card-header">
             <h3 id="consultTitle">Consultation</h3>
-            <button class="btn btn-outline btn-sm" onclick="closeConsult()">✕ Close</button>
+            <div class="btn-group">
+              <button class="btn btn-outline btn-sm" onclick="openTeleconsultation()">📹 Teleconsult</button>
+              <button class="btn btn-outline btn-sm" onclick="closeConsult()">✕ Close</button>
+            </div>
           </div>
           <form id="consultForm" onsubmit="return saveConsult(event)">
             <input type="hidden" id="consultPatientId">
             <div class="form-grid">
+              <div class="form-group">
+                <label>Note Template</label>
+                <select id="cTemplate" onchange="loadClinicalTemplate(this.value)">
+                  <option value="general">General Adult</option>
+                  <option value="pediatric">Pediatric SOAP</option>
+                  <option value="antenatal">Antenatal Visit</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Admission Status (Patient Type) *</label>
+                <div class="toggle-group mt-sm">
+                  <button type="button" class="active" onclick="setDoctorPatientType('Outpatient',this)">Outpatient</button>
+                  <button type="button" onclick="setDoctorPatientType('Inpatient',this)">Admit as Inpatient</button>
+                </div>
+                <input type="hidden" id="cPatientType" value="Outpatient">
+              </div>
               <div class="form-group full">
                 <label>Chief Complaint *</label>
                 <textarea id="cComplaint" required placeholder="Patient presents with…"></textarea>
               </div>
               <div class="form-group full">
-                <label>Diagnosis (ICD-11 Free Text) *</label>
-                <input type="text" id="cDiagnosis" required placeholder="e.g. 1A00 Cholera">
+                <label>Diagnosis (ICD-11 / 3BT Lookup) *</label>
+                <input type="text" id="cDiagnosis" list="icd11List" required placeholder="Search diagnosis...">
+                <datalist id="icd11List">
+                  <option value="1A00 Cholera">
+                  <option value="1F4Z Malaria, unspecified">
+                  <option value="5A10 Type 1 diabetes mellitus">
+                  <option value="5A11 Type 2 diabetes mellitus">
+                  <option value="BA00 Essential hypertension">
+                  <option value="CA00.0 Acute bacterial pharyngitis">
+                  <option value="CA40 Pneumonia, unspecified">
+                  <option value="GB40 Normal pregnancy">
+                </datalist>
               </div>
               <div class="form-group full">
                 <label>Clinical Notes *</label>
-                <textarea id="cNotes" required placeholder="Detailed clinical findings…" style="min-height:100px;"></textarea>
+                <textarea id="cNotes" required placeholder="Detailed clinical findings…" style="min-height:150px; font-family: monospace;"></textarea>
               </div>
               <div class="form-group full">
                 <label>Treatment / Prescription</label>
@@ -364,6 +431,64 @@
            NURSE / MATERNITY PANEL
            ═══════════════════════════════════════ -->
       <div class="panel" id="panel-nurse">
+        
+        <!-- Vital Signs Charting -->
+        <div class="card">
+          <div class="card-header">
+            <h3>📈 Vital Signs Charting</h3>
+          </div>
+          <form id="vitalsForm" onsubmit="return logVitals(event)">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Patient *</label>
+                <select id="vPatient" required></select>
+              </div>
+              <div class="form-group">
+                <label>Temp (°C)</label>
+                <input type="number" id="vTemp" step="0.1" min="30" max="45" placeholder="37.0">
+              </div>
+              <div class="form-group">
+                <label>Blood Pressure (SYS/DIA)</label>
+                <input type="text" id="vBP" pattern="^\d{2,3}\/\d{2,3}$" placeholder="120/80">
+              </div>
+              <div class="form-group">
+                <label>Heart Rate (bpm)</label>
+                <input type="number" id="vHR" min="30" max="250" placeholder="75">
+              </div>
+              <div class="form-group">
+                <label>Resp Rate (bpm)</label>
+                <input type="number" id="vRR" min="10" max="60" placeholder="16">
+              </div>
+              <div class="form-group">
+                <label>SpO2 (%)</label>
+                <input type="number" id="vSpO2" min="50" max="100" placeholder="98">
+              </div>
+            </div>
+            <div class="mt">
+              <button type="submit" class="btn btn-primary">🩺 Save Vitals</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Vital Signs Log / Chart -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Vital Signs History</h3>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Patient</th><th>Time</th><th>Temp</th><th>BP</th><th>HR</th><th>RR</th><th>SpO2</th>
+                </tr>
+              </thead>
+              <tbody id="vitalsTable"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <hr class="divider">
+
         <!-- Ward Consumable / Act Logger -->
         <div class="card">
           <div class="card-header">
@@ -594,6 +719,73 @@
       </div>
 
       <!-- ═══════════════════════════════════════
+           DIAGNOSTICS (LAB & PACS) PANEL
+           ═══════════════════════════════════════ -->
+      <div class="panel" id="panel-diagnostics">
+        <!-- Laboratory Information System (LIS) -->
+        <div class="card">
+          <div class="card-header">
+            <h3>🧪 Laboratory Information System (LIS)</h3>
+          </div>
+          <p class="text-sm text-muted mb">Mock HL7 integration for automated lab results.</p>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Select Patient</label>
+              <select id="labPatient"></select>
+            </div>
+            <div class="form-group">
+              <label>Test Panel</label>
+              <select id="labTest">
+                <option value="CBC">Complete Blood Count (CBC)</option>
+                <option value="CMP">Comprehensive Metabolic Panel (CMP)</option>
+                <option value="Lipid">Lipid Panel</option>
+                <option value="Urinalysis">Urinalysis</option>
+              </select>
+            </div>
+          </div>
+          <div class="mt">
+            <button class="btn btn-primary" onclick="orderLabTest()">Order Lab Test</button>
+            <button class="btn btn-outline" onclick="simulateLabResult()">🔄 Simulate Result (HL7)</button>
+          </div>
+          
+          <div class="table-wrap mt">
+            <table>
+              <thead>
+                <tr>
+                  <th>Patient</th><th>Test</th><th>Status</th><th>Result</th><th>Time</th>
+                </tr>
+              </thead>
+              <tbody id="labTable"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Picture Archiving and Communication System (PACS) -->
+        <div class="card">
+          <div class="card-header">
+            <h3>🩻 PACS / DICOM Viewer (Mock)</h3>
+          </div>
+          <p class="text-sm text-muted mb">Simulated web-based DICOM image viewer for radiology.</p>
+          <div style="display:flex; gap: 20px; flex-wrap: wrap;">
+            <div style="flex:1; min-width: 200px;">
+              <ul style="list-style: none; padding:0; margin:0;" id="pacsList">
+                <!-- Populated by JS -->
+              </ul>
+            </div>
+            <div style="flex:3; min-width: 300px; background: #111; color: #fff; border-radius: 8px; display: flex; align-items: center; justify-content: center; aspect-ratio: 1; position: relative;">
+              <span id="pacsPlaceholder" style="font-size: 24px; opacity: 0.5;">Select a scan to view</span>
+              <!-- Mock overlay tools -->
+              <div id="pacsTools" style="display:none; position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 5px;">
+                <button class="btn btn-outline btn-sm" style="color:white; border-color:white;" title="Zoom">🔍</button>
+                <button class="btn btn-outline btn-sm" style="color:white; border-color:white;" title="Contrast">🌓</button>
+                <button class="btn btn-outline btn-sm" style="color:white; border-color:white;" title="Measure">📏</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════
            HUMAN RESOURCES PANEL
            ═══════════════════════════════════════ -->
       <div class="panel" id="panel-hr">
@@ -659,7 +851,27 @@
           </form>
         </div>
 
-        <!-- Staff Directory -->
+        <!-- Employee Vault (File Upload) -->
+        <div class="card">
+          <div class="card-header">
+            <h3>📂 Employee Vault</h3>
+          </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Select Employee *</label>
+              <select id="vaultEmployee" onchange="refreshEmployeeVault()"></select>
+            </div>
+            <div class="form-group">
+              <label>Upload File (Max 5MB)</label>
+              <input type="file" id="empVaultFile" accept="image/*,.pdf,.doc,.docx" onchange="handleEmpFileUpload(event)">
+            </div>
+          </div>
+          <div id="empVaultFiles" style="margin-top: 15px;">
+            <p class="text-muted text-sm">Select an employee to view their files.</p>
+          </div>
+        </div>
+
+        <!-- Staff List & Documents -->
         <div class="card">
           <div class="card-header">
             <h3>Staff Directory</h3>
@@ -699,6 +911,47 @@
            ═══════════════════════════════════════ -->
       <div class="panel" id="panel-admin">
         <div class="stats-row" id="adminStats"></div>
+
+        <!-- Financial & Operational Dashboard -->
+        <div class="card">
+          <div class="card-header">
+            <h3>📈 Financial & Operational Dashboard</h3>
+            <button class="btn btn-outline btn-sm" onclick="refreshAdmin()">🔄 Refresh</button>
+          </div>
+          <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+            
+            <!-- Revenue by Department (Pie Chart & Bar Chart) -->
+            <div style="flex: 2; min-width: 350px; background: var(--bg); padding: 15px; border-radius: 8px;">
+              <h4>Revenue by Department</h4>
+              <div style="display: flex; flex-wrap: wrap; gap: 30px; margin-top: 15px;">
+                <!-- Pie Chart -->
+                <div style="flex: 1; min-width: 150px; display: flex; flex-direction: column; align-items: center;">
+                  <div id="revenuePieChart" style="width: 140px; height: 140px; border-radius: 50%; background: #333; margin-bottom: 15px;"></div>
+                  <div style="font-size: 18px; text-align: center;">
+                    Total Revenue<br><strong style="color: var(--success);" id="totalRevenueDisplay">0 RWF</strong>
+                  </div>
+                </div>
+                <!-- Bar Chart -->
+                <div id="revenueBarChart" style="flex: 2; min-width: 200px; display: flex; flex-direction: column; gap: 8px; justify-content: center;">
+                  <!-- Populated by JS -->
+                </div>
+              </div>
+            </div>
+
+            <!-- Wait Times & Queue Status (Bar Chart / Stats) -->
+            <div style="flex: 1; min-width: 250px; background: var(--bg); padding: 15px; border-radius: 8px;">
+              <h4>Queue & Wait Status</h4>
+              <div style="margin-top: 15px;">
+                <p>Total Patients Today: <strong id="adminTotalPatients">0</strong></p>
+                <p>Waiting in Triage: <strong id="adminWaitTriage">0</strong></p>
+                <p>Waiting for Doctor: <strong id="adminWaitDoctor">0</strong></p>
+                <p>Waiting for Lab: <strong id="adminWaitLab">0</strong></p>
+                <p>Waiting for Pharmacy: <strong id="adminWaitPharm">0</strong></p>
+              </div>
+            </div>
+
+          </div>
+        </div>
 
         <!-- System Users -->
         <div class="card">
@@ -753,6 +1006,29 @@
               <tbody id="masterPatientTable"></tbody>
             </table>
           </div>
+        </div>
+
+        <!-- Merge Patient Records -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Merge Patient Records</h3>
+          </div>
+          <p class="text-sm text-muted mb">Merge a duplicate patient record into a primary record. All history, encounters, and files from the duplicate will be transferred to the primary patient.</p>
+          <form onsubmit="return mergePatients(event)">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Primary Patient (Keep) *</label>
+                <select id="mergePrimary" required></select>
+              </div>
+              <div class="form-group">
+                <label>Duplicate Patient (Merge & Delete) *</label>
+                <select id="mergeDuplicate" required></select>
+              </div>
+            </div>
+            <div class="mt">
+              <button type="submit" class="btn btn-warning">⚠️ Merge Patients</button>
+            </div>
+          </form>
         </div>
 
         <!-- Reset Demo Data -->
@@ -823,6 +1099,32 @@
     <div id="detailModalBody"></div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('detailModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Teleconsultation Mock Modal -->
+<div class="modal-overlay" id="teleconsultModal">
+  <div class="modal" style="max-width: 800px; width: 90%;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
+      <h3>📹 Live Teleconsultation (Mock)</h3>
+      <button class="btn btn-danger btn-sm" onclick="closeModal('teleconsultModal')">End Call</button>
+    </div>
+    <div style="display:flex; gap: 20px; flex-wrap: wrap;">
+      <!-- Video Feed Placeholder -->
+      <div style="flex: 2; min-width: 300px; background: #000; border-radius: 8px; position: relative; aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; color: white;">
+        <span style="font-size: 48px; opacity: 0.5;">👤</span>
+        <div style="position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px; font-size: 12px;">Dr. Specialist (Remote)</div>
+        <div style="position: absolute; bottom: 10px; right: 10px; width: 100px; height: 75px; background: #333; border-radius: 4px; border: 2px solid white; display: flex; align-items: center; justify-content: center;">
+          <span style="font-size: 24px; opacity: 0.8;">👨‍⚕️</span>
+        </div>
+      </div>
+      <!-- Shared Notes -->
+      <div style="flex: 1; min-width: 250px; display: flex; flex-direction: column;">
+        <h4>Shared Clinical Notes</h4>
+        <textarea style="flex:1; width:100%; border: 1px solid var(--border); border-radius: 4px; padding: 10px; font-family: monospace; resize: none; margin-bottom: 10px;" placeholder="Type notes here during the call..."></textarea>
+        <button class="btn btn-primary" onclick="toast('Notes saved to patient chart', 'success'); closeModal('teleconsultModal');">Save Notes to Chart</button>
+      </div>
     </div>
   </div>
 </div>
